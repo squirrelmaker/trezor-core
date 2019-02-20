@@ -18,10 +18,10 @@ async def generate_mnemonic(ctx, msg):
 
     # request external entropy and compute mnemonic
     ent_ack = await ctx.call(EntropyRequest(), MessageType.EntropyAck)
-    return generate(msg.strength, internal_ent, ent_ack.entropy)
+    return _generate(msg.strength, internal_ent, ent_ack.entropy)
 
 
-def generate(strength: int, int_entropy: bytes, ext_entropy: bytes) -> bytes:
+def _generate(strength: int, int_entropy: bytes, ext_entropy: bytes) -> bytes:
     ehash = hashlib.sha256()
     ehash.update(int_entropy)
     ehash.update(ext_entropy)

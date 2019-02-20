@@ -19,9 +19,12 @@ if __debug__:
 
 async def show_intro(ctx, slip39=False):
     text = Text("Create a new wallet", ui.ICON_RESET, new_lines=False)
-    text.normal("Do you really want to")
+    text.normal("Do you want to create")
     text.br()
-    text.normal("create a new wallet?")
+    if slip39:
+        text.normal("a new SLIP-39 wallet?")
+    else:
+        text.normal("a new wallet?")
     text.br()
     text.br_half()
     text.normal("By continuing you agree")
@@ -30,6 +33,21 @@ async def show_intro(ctx, slip39=False):
     text.bold("https://trezor.io/tos")
 
     await require_confirm(ctx, text, code=ButtonRequestType.ResetDevice)
+
+
+async def show_mnemonics(ctx, mnemonics):
+    # require confirmation of the mnemonic safety
+    await show_warning(ctx)
+
+    for i, mnemonic in enumerate(mnemonics, 1):
+        if len(mnemonics) == 1:
+            i = None
+        # show mnemonic and require confirmation of a random word
+        while True:
+            await show_mnemonic_words(ctx, mnemonic, i)
+            if await check_mnemonic(ctx, mnemonic):
+                break
+            await show_wrong_entry(ctx)
 
 
 async def show_warning(ctx):
@@ -74,7 +92,7 @@ async def show_entropy(ctx, entropy: bytes):
     await require_confirm(ctx, text, ButtonRequestType.ResetDevice)
 
 
-async def show_mnemonic(ctx, mnemonic: str):
+async def show_mnemonic_words(ctx, mnemonic: str, position: int):
     await ctx.call(
         ButtonRequest(code=ButtonRequestType.ResetDevice), MessageType.ButtonAck
     )
@@ -82,17 +100,20 @@ async def show_mnemonic(ctx, mnemonic: str):
     words_per_page = const(4)
     words = list(enumerate(mnemonic.split()))
     pages = list(chunks(words, words_per_page))
-    paginator = paginate(show_mnemonic_page, len(pages), first_page, pages)
+    paginator = paginate(show_mnemonic_page, len(pages), first_page, pages, position)
     await ctx.wait(paginator)
 
 
 @ui.layout
-async def show_mnemonic_page(page: int, page_count: int, pages: list):
+async def show_mnemonic_page(page: int, page_count: int, pages: list, position: int):
     if __debug__:
         debug.reset_current_words = [word for _, word in pages[page]]
 
     lines = ["%2d. %s" % (wi + 1, word) for wi, word in pages[page]]
-    text = Text("Recovery seed", ui.ICON_RESET)
+    if position:
+        text = Text("Recovery seed %d" % position, ui.ICON_RESET)
+    else:
+        text = Text("Recovery seed", ui.ICON_RESET)
     text.mono(*lines)
     content = Scrollpage(text, page, page_count)
 
