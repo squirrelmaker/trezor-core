@@ -1,5 +1,5 @@
 from trezor import ui, wire
-from trezor.crypto import bip32, bip39
+from trezor.crypto import bip32, bip39, slip39
 
 from apps.common import cache, storage
 from apps.common.request_passphrase import protect_by_passphrase
@@ -66,13 +66,13 @@ async def _compute_seed(ctx: wire.Context) -> bytes:
     if passphrase is None:
         passphrase = await protect_by_passphrase(ctx)
         cache.set_passphrase(passphrase)
-    _start_bip39_progress()
-    seed = bip39.seed(storage.get_mnemonic(), passphrase, _render_bip39_progress)
+    _start_progress()
+    seed = _get_seed(passphrase)
     cache.set_seed(seed)
     return seed
 
 
-def _start_bip39_progress():
+def _start_progress():
     ui.backlight_slide_sync(ui.BACKLIGHT_DIM)
     ui.display.clear()
     ui.header("Please wait")
@@ -80,7 +80,7 @@ def _start_bip39_progress():
     ui.backlight_slide_sync(ui.BACKLIGHT_NORMAL)
 
 
-def _render_bip39_progress(progress: int, total: int):
+def _render_progress(progress: int, total: int):
     p = int(1000 * progress / total)
     ui.display.loader(p, 18, ui.WHITE, ui.BG)
     ui.display.refresh()
@@ -91,7 +91,7 @@ def derive_node_without_passphrase(
 ) -> bip32.HDNode:
     if not storage.is_initialized():
         raise Exception("Device is not initialized")
-    seed = bip39.seed(storage.get_mnemonic(), "")
+    seed = _get_seed("")
     node = bip32.from_seed(seed, curve_name)
     node.derive_path(path)
     return node
@@ -100,3 +100,12 @@ def derive_node_without_passphrase(
 def remove_ed25519_prefix(pubkey: bytes) -> bytes:
     # 0x01 prefix is not part of the actual public key, hence removed
     return pubkey[1:]
+
+
+def _get_seed(passphrase: str) -> bytes:
+    if storage.get_mnemonic_standard() == storage._MNEMONIC_STANDARD_BIP39:
+        return bip39.seed(storage.get_mnemonic().decode(), passphrase, _render_progress)
+    elif storage.get_mnemonic_standard() == storage._MNEMONIC_STANDARD_SLIP39:
+        return slip39.seed(storage.get_mnemonic(), passphrase)  # TODO render progress?
+    else:
+        raise RuntimeError("Unknown mnemonic standard")

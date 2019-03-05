@@ -13,12 +13,14 @@ _FALSE_BYTE = b"\x00"
 _TRUE_BYTE = b"\x01"
 _COUNTER_HEAD_LEN = 4
 _COUNTER_TAIL_LEN = 8
+_MNEMONIC_STANDARD_BIP39 = b"\x00"
+_MNEMONIC_STANDARD_SLIP39 = b"\x01"
 
 # fmt: off
 _APP                = const(0x01)  # app namespace
 _DEVICE_ID          = const(0x00)  # bytes
 _VERSION            = const(0x01)  # int
-_MNEMONIC           = const(0x02)  # str
+_MNEMONIC           = const(0x02)  # bytes
 _LANGUAGE           = const(0x03)  # str
 _LABEL              = const(0x04)  # str
 _USE_PASSPHRASE     = const(0x05)  # bool (0x01 or empty)
@@ -30,7 +32,102 @@ _PASSPHRASE_SOURCE  = const(0x0A)  # int
 _UNFINISHED_BACKUP  = const(0x0B)  # bool (0x01 or empty)
 _AUTOLOCK_DELAY_MS  = const(0x0C)  # int
 _NO_BACKUP          = const(0x0D)  # bool (0x01 or empty)
+_MNEMONIC_STANDARD  = const(0x0E)  # int (0x00 for BIP39, 0x01 for SLIP-39)
+
+_SLIP39             = const(0x02)  # SLIP-39 namespace
+_SLIP39_IN_PROGRESS = const(0x00)  # bool
+_SLIP39_ID          = const(0x01)  # bytes
+_SLIP39_THRESHOLD   = const(0x02)  # int
+_SLIP39_REMAINING   = const(0x03)  # int
+_SLIP39_SHARES      = const(0x04)  # bytes
 # fmt: on
+
+
+def set_slip39_in_progress(val: bool):
+    _set_bool(_SLIP39, _SLIP39_IN_PROGRESS, val)
+
+
+def is_slip39_in_progress():
+    return _get_bool(_SLIP39, _SLIP39_IN_PROGRESS)
+
+
+def set_slip39_id(id: bytes):
+    config.set(_SLIP39, _SLIP39_ID, id)
+
+
+def get_slip39_id() -> bytes:
+    # TODO add 'set_str()' ?
+    return config.get(_SLIP39, _SLIP39_ID).decode()
+
+
+def set_slip39_threshold(threshold: int):
+    # TODO add 'set_int()' or 'set_uint8' ?
+    config.set(_SLIP39, _SLIP39_THRESHOLD, threshold.to_bytes(1, "big"))
+
+
+def get_slip39_threshold() -> int:
+    return int.from_bytes(config.get(_SLIP39, _SLIP39_THRESHOLD), "big")
+
+
+def set_slip39_remaining(remaining: int):
+    config.set(_SLIP39, _SLIP39_REMAINING, remaining.to_bytes(1, "big"))
+
+
+def get_slip39_remaining() -> int:
+    return int.from_bytes(config.get(_SLIP39, _SLIP39_REMAINING), "big")
+
+
+def get_slip39_words_count() -> int:
+    if not is_slip39_in_progress():
+        raise RuntimeError("SLIP 39 not in progress")
+    shares = get_slip39_shares()
+    if len(shares[0]) == 16:
+        return 20
+    elif len(shares[0]) == 32:
+        return 33
+    else:
+        raise RuntimeError("Unknown SLIP-39 share length")
+
+
+def set_slip39_shares(data: bytes, threshold: int, remaining: int):
+    current = [bytes([0xFF] * len(data))] * threshold
+    index = threshold - remaining
+    current[index] = data
+
+    for i, s in enumerate(get_slip39_shares()):
+        current[i] = s
+
+    print("STORING:")
+    to_store = b"".join(current)
+    print(hexlify(to_store))
+    config.set(_SLIP39, _SLIP39_SHARES, to_store, True)
+
+
+def get_slip39_shares() -> list:
+    shares = config.get(_SLIP39, _SLIP39_SHARES, True)
+    if not shares:
+        return []
+    length = len(shares) // get_slip39_threshold()
+    s = []
+    for i in range(0, len(shares), length):
+        share = shares[i : i + length]
+        if share != b"\xFF" * 16:
+            s.append(share)
+    return s
+
+
+def set_slip39_secret(secret: bytes):
+    config.set(_APP, _MNEMONIC, secret)
+    config.set(_APP, _MNEMONIC_STANDARD, _MNEMONIC_STANDARD_SLIP39)
+    _init()
+
+
+def clear_slip39_data():
+    config.delete(_SLIP39, _SLIP39_IN_PROGRESS)
+    config.delete(_SLIP39, _SLIP39_ID)
+    config.delete(_SLIP39, _SLIP39_REMAINING)
+    config.delete(_SLIP39, _SLIP39_THRESHOLD)
+    config.delete(_SLIP39, _SLIP39_SHARES)
 
 
 def _set_bool(app: int, key: int, value: bool, public: bool = False) -> None:
@@ -57,7 +154,9 @@ def get_device_id() -> str:
 
 
 def is_initialized() -> bool:
-    return bool(config.get(_APP, _VERSION))
+    return bool(config.get(_APP, _VERSION)) and not bool(
+        config.get(_SLIP39, _SLIP39_IN_PROGRESS)
+    )
 
 
 def get_label() -> str:
@@ -67,11 +166,16 @@ def get_label() -> str:
     return label.decode()
 
 
-def get_mnemonic() -> str:
+def get_mnemonic() -> bytes:
     mnemonic = config.get(_APP, _MNEMONIC)
     if mnemonic is None:
         return None
-    return mnemonic.decode()
+    return mnemonic
+
+
+def get_mnemonic_standard() -> int:
+    result = config.get(_APP, _MNEMONIC_STANDARD)
+    return result
 
 
 def has_passphrase() -> bool:
@@ -82,8 +186,13 @@ def get_homescreen() -> bytes:
     return config.get(_APP, _HOMESCREEN, True)  # public
 
 
-def load_mnemonic(mnemonic: str, needs_backup: bool, no_backup: bool) -> None:
-    config.set(_APP, _MNEMONIC, mnemonic.encode())
+def set_bip39_mnemonic(mnemonic: bytes, needs_backup: bool, no_backup: bool) -> None:
+    config.set(_APP, _MNEMONIC, mnemonic)
+    config.set(_APP, _MNEMONIC_STANDARD, _MNEMONIC_STANDARD_BIP39)
+    _init(needs_backup, no_backup)
+
+
+def _init(needs_backup=False, no_backup=False):
     config.set(_APP, _VERSION, _STORAGE_VERSION)
     _set_bool(_APP, _NO_BACKUP, no_backup)
     if not no_backup:

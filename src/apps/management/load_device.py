@@ -16,7 +16,7 @@ async def load_device(ctx, msg):
     if msg.node is not None:
         raise wire.ProcessError("LoadDevice.node is not supported")
 
-    if not msg.skip_checksum and not bip39.check(msg.mnemonic):
+    if not msg.skip_checksum and not bip39.check(msg.mnemonic.encode()):
         raise wire.ProcessError("Mnemonic is not valid")
 
     text = Text("Loading seed")
@@ -24,7 +24,9 @@ async def load_device(ctx, msg):
     text.normal("Continue only if you", "know what you are doing!")
     await require_confirm(ctx, text)
 
-    storage.load_mnemonic(mnemonic=msg.mnemonic, needs_backup=True, no_backup=False)
+    storage.set_bip39_mnemonic(
+        mnemonic=msg.mnemonic.encode(), needs_backup=True, no_backup=False
+    )
     storage.load_settings(use_passphrase=msg.passphrase_protection, label=msg.label)
     if msg.pin:
         config.change_pin(pin_to_int(""), pin_to_int(msg.pin))

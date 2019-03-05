@@ -1,5 +1,5 @@
-from trezor.ui.num_pad import NumPad
 from trezor.crypto import slip39
+from trezor.ui.num_pad import NumPad
 
 
 def generate_mnemonic(count: int, threshold: int, strength: int):

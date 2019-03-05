@@ -4,6 +4,28 @@ from trezorcrypto import random
 
 from .slip39_wordlist import words
 
+SHARE_LENGTHS = (20, 33)
+
+
+class Slip39Share:
+    def __init__(
+        self, identifier: list, threshold: int, index: int, share: bytes, checksum: list
+    ):
+        self.identifier = identifier
+        self.threshold = threshold
+        self.index = index
+        self.share = share
+        self.checksum = checksum
+
+    def get_identifier(self):
+        return self.identifier
+
+    def get_threshold(self):
+        return self.threshold
+
+    def get_share(self):
+        return self.share
+
 
 def find_word(prefix: str) -> Optional[str]:
     """
@@ -12,7 +34,6 @@ def find_word(prefix: str) -> Optional[str]:
     raise NotImplementedError()
 
 
-# extmod/modtrezorcrypto/modtrezorcrypto-bip39.h
 def complete_word(prefix: str) -> int:
     """
     Return possible 1-letter suffixes for given word prefix.
@@ -42,6 +63,31 @@ def generate(count: int, threshold: int, strength: int):
     return mnemonics
 
 
+def parse_share(mnemonic: list):
+    # TODO validate checksum
+    t_i = words.index(mnemonic[3])
+    threshold = t_i >> 5
+    print(threshold)
+    index = t_i & 0x1F
+    print(index)
+    return Slip39Share(
+        " ".join(mnemonic[:3]),
+        threshold,
+        index,
+        mnemonic_to_bytes(mnemonic[4:-3]),
+        mnemonic[-3:],
+    )
+
+
+def mnemonic_to_bytes(mnemonics: list) -> bytes:
+    # TODO! THIS IS MOCK
+    i = 0
+    for m in mnemonics:
+        i <<= 10
+        i |= words.index(m)
+    return i.to_bytes(len(mnemonics) * 10 // 8, "big")
+
+
 def from_data(data: bytes, count: int, threshold: int) -> str:
     """
     Generate a mnemonic from given data.
@@ -53,11 +99,12 @@ def check(mnemonic: str) -> bool:
     """
     Check whether given mnemonic is valid.
     """
-    raise NotImplementedError()
+    print("WARNING: SLIP39 check not implemented")
 
 
-def seed(mnemonic: str, passphrase: str) -> bytes:
+def seed(secret: bytes, passphrase: str) -> bytes:
     """
     Generate seed from mnemonic and passphrase.
     """
-    raise NotImplementedError()
+    # TODO
+    return secret
